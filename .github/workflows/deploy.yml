@@ -117,10 +117,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bad="$(find _site \( -name '.git' -o -name '.git*' -o -name '.env*' -o -name content \) -print)"
+          bad="$(find _site \( -name '.git' -o -name '.git*' -o -name '.env*' \) -print)"
           hidden="$(find _site -name '.*' ! -path '_site/.well-known/*' ! -name '.well-known' ! -name '.nojekyll' -print)"
-          if [ -n "$bad" ] || [ -n "$hidden" ]; then
+          if [ -n "$bad" ] || [ -n "$hidden" ] || [ -e _site/content ]; then
             printf 'refusing to publish unexpected paths:\n%s\n%s\n' "$bad" "$hidden" >&2
+            [ -e _site/content ] && echo "_site/content is present" >&2
             exit 1
           fi
 

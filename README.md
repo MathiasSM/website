@@ -51,7 +51,7 @@ Neither token may have `Workflows` permission. `CONTENT_TOKEN` is an environment
 
 - Settings -> Pages -> Source: `GitHub Actions`.
 - Custom domain: `mathiassm.dev`, with Enforce HTTPS.
-- The `github-pages` environment allows jobs from `master` only; this gates both the deploy and `CONTENT_TOKEN`.
+- The `github-pages` environment allows jobs from `master` only; this gates both `build` (and its `CONTENT_TOKEN`) and `deploy`.
 
 ## Rules
 
@@ -61,7 +61,7 @@ Neither token may have `Workflows` permission. `CONTENT_TOKEN` is an environment
 
 ## Security notes
 
-The `site` artifact is short-lived (1 day) and is uploaded only after the build job's checks pass, so a failed build does not leave unpublished output in the artifact store. The external link check runs inside `build` against the content repo's `config/lychee.toml`; that file is never uploaded as an artifact. The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA; drafts are excluded by the production build. `harden-runner` runs in audit mode, so egress is logged, not blocked. The content-read token lives in this repo's `github-pages` environment, so a compromise of this repo could expose the private content.
+The `site` artifact is short-lived (1 day) and is uploaded only after the build job's checks pass, so a failed build job does not leave unpublished output in the artifact store; a downstream check failure can leave it for its 1-day retention. The external link check runs inside `build` against the content repo's `config/lychee.toml`; that file is never uploaded as an artifact. The check runs in the same job as `CONTENT_TOKEN` with `harden-runner` in audit mode; the lychee action is SHA-pinned and the config has no executable surface. The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA; drafts are excluded by the production build. The content-read token lives in this repo's `github-pages` environment, so a compromise of this repo could expose the private content.
 
 Changes are committed to `master` by the owner.
 

@@ -8,6 +8,10 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/**"
 
 permissions:
   contents: read

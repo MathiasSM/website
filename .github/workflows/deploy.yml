@@ -26,7 +26,7 @@ jobs:
       contents: read
     # PR #202 adds cross-repo content checkout and .cozyll-version resolution.
     # Bump this to the merged commit or the next release tag.
-    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@7812e717d5d29b1996e0772e0da7aff89244f9cf
+    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@758fa78c4f87d9dbf4c42ca504bb3d0b3b7ea126
     with:
       content-repo: MathiasSM/web-writings
       run-links-external: true

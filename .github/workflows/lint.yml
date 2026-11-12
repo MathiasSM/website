@@ -17,12 +17,22 @@ jobs:
     name: actionlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install actionlint
+        shell: bash
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/actionlint.tar.gz" \
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o actionlint_1.7.12_linux_amd64.tar.gz \
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
-          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          curl -fsSL -o actionlint_checksums.txt \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt
+          grep ' actionlint_1.7.12_linux_amd64.tar.gz$' actionlint_checksums.txt | sha256sum -c -
+          tar -xzf actionlint_1.7.12_linux_amd64.tar.gz actionlint
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Lint workflows
         run: actionlint

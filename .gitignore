@@ -1,8 +1,11 @@
 /content/
 /_site/
 /_cache/
+/_artifacts/
 /cozyll
 /templates/
 /assets/
 /schema/
 /scripts/
+/docs/
+*.tix

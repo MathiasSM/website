@@ -2,7 +2,8 @@
 # publish it to GitHub Pages from this public repository.
 #
 # Content lives in MathiasSM/web-writings and is checked out under content/
-# with a read-only fine-grained PAT. It must never be committed here.
+# with a read-only fine-grained PAT stored in the github-pages environment. It
+# must never be committed here.
 name: Build and deploy
 
 on:
@@ -26,6 +27,7 @@ jobs:
   build:
     name: Build site
     if: github.ref == 'refs/heads/master'
+    environment: github-pages
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (audit outbound calls)
@@ -88,14 +90,14 @@ jobs:
             # `cozyll-version` key in website.yaml and Cozyll accepts the key.
             raw="v3.4.3.1"
           fi
-          if ! printf '%s' "$raw" | grep -Eq '^(latest|v[0-9]+(\.[0-9]+)+)$'; then
-            echo "invalid cozyll-version in website.yaml: $raw" >&2
+          if ! printf '%s' "$raw" | grep -Eq '^v[0-9]+(\.[0-9]+)+$'; then
+            echo "cozyll-version in website.yaml must be a release tag like v3.4.3.1" >&2
             exit 1
           fi
           echo "value=$raw" >> "$GITHUB_OUTPUT"
 
       - name: Install the Cozyll kit
-        uses: MathiasSM/Cozyll/.github/actions/setup-cozyll@v3.4.3.1
+        uses: MathiasSM/Cozyll/.github/actions/setup-cozyll@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         with:
           version: ${{ steps.kit.outputs.value }}
 
@@ -106,7 +108,7 @@ jobs:
         run: cozyll check
 
       - name: Content schema
-        uses: MathiasSM/Cozyll/.github/actions/check-content-schema@v3.4.3.1
+        uses: MathiasSM/Cozyll/.github/actions/check-content-schema@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         with:
           content-dir: content
           schema-dir: schema
@@ -115,22 +117,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bad="$(find _site -mindepth 1 -maxdepth 1 \( -name '.git*' -o -name '.env*' \) -print)"
-          hidden="$(find _site -mindepth 1 -maxdepth 1 -name '.*' ! -name '.well-known' -print)"
-          if [ -n "$bad" ] || [ -d _site/content ]; then
-            printf 'refusing to publish unexpected paths:\n%s\n' "$bad" >&2
+          bad="$(find _site \( -name '.git' -o -name '.git*' -o -name '.env*' -o -name content \) -print)"
+          hidden="$(find _site -name '.*' ! -path '_site/.well-known/*' ! -name '.well-known' ! -name '.nojekyll' -print)"
+          if [ -n "$bad" ] || [ -n "$hidden" ]; then
+            printf 'refusing to publish unexpected paths:\n%s\n%s\n' "$bad" "$hidden" >&2
             exit 1
           fi
-          if [ -n "$hidden" ]; then
-            printf 'notice: hidden paths in _site (review before shipping):\n%s\n' "$hidden"
-          fi
 
-      - name: Stage the lychee config
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p _artifacts
-          cp content/config/lychee.toml _artifacts/lychee.toml
+      - name: External link check
+        uses: MathiasSM/Cozyll/.github/actions/check-links-external@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
+        with:
+          site-dir: _site
+          config: content/config/lychee.toml
+          fail: "true"
 
       - name: Upload the built site
         uses: actions/upload-artifact@v7
@@ -138,13 +137,6 @@ jobs:
           name: site
           path: _site
           include-hidden-files: true
-          retention-days: 1
-
-      - name: Upload the link checker config
-        uses: actions/upload-artifact@v7
-        with:
-          name: lychee-config
-          path: _artifacts
           retention-days: 1
 
   html:
@@ -160,7 +152,7 @@ jobs:
         with:
           name: site
           path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-html@v3.4.3.1
+      - uses: MathiasSM/Cozyll/.github/actions/check-html@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         with:
           site-dir: _site
 
@@ -177,7 +169,7 @@ jobs:
         with:
           name: site
           path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-a11y@v3.4.3.1
+      - uses: MathiasSM/Cozyll/.github/actions/check-a11y@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         continue-on-error: true
         with:
           site-dir: _site
@@ -195,7 +187,7 @@ jobs:
         with:
           name: site
           path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-jsonld@v3.4.3.1
+      - uses: MathiasSM/Cozyll/.github/actions/check-jsonld@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         with:
           site-dir: _site
 
@@ -212,7 +204,7 @@ jobs:
         with:
           name: site
           path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-wellknown@v3.4.3.1
+      - uses: MathiasSM/Cozyll/.github/actions/check-wellknown@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         with:
           site-dir: _site
 
@@ -229,36 +221,13 @@ jobs:
         with:
           name: site
           path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-xml@v3.4.3.1
+      - uses: MathiasSM/Cozyll/.github/actions/check-xml@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
         with:
           site-dir: _site
-
-  links-external:
-    name: External links
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (audit outbound calls)
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: audit
-      - uses: actions/download-artifact@v8
-        with:
-          name: site
-          path: _site
-      - uses: actions/download-artifact@v8
-        with:
-          name: lychee-config
-          path: lychee-config
-      - uses: MathiasSM/Cozyll/.github/actions/check-links-external@v3.4.3.1
-        with:
-          site-dir: _site
-          config: lychee-config/lychee.toml
-          fail: "true"
 
   deploy:
     name: Deploy
-    needs: [build, html, jsonld, wellknown, xml, links-external]
+    needs: [build, html, jsonld, wellknown, xml]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:

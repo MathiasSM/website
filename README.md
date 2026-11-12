@@ -25,9 +25,9 @@ https://mathiassm.dev
 
 ## Kit version
 
-The Cozyll kit version is read from a `cozyll-version` key in the content repo's `website.yaml`. Until that key exists (it is not yet supported by Cozyll), the workflow falls back to a hardcoded `v3.4.3.1`, marked with a `TODO`. Remove the fallback once `website.yaml` ships the key and Cozyll accepts it.
+The Cozyll kit version is read from a `cozyll-version` key in the content repo's `website.yaml`. The value must be a pinned release tag such as `v3.4.3.1`; `latest` is rejected so the build is reproducible. Until the key exists (it is not yet supported by Cozyll), the workflow falls back to a hardcoded `v3.4.3.1`, marked with a `TODO`. Remove the fallback once `website.yaml` ships the key and Cozyll accepts it.
 
-The Cozyll action refs are pinned to `v3.4.3.1`; bump them together with the kit version.
+The Cozyll action refs are pinned by commit SHA to `v3.4.3.1`; bump them together with the kit version.
 
 ## Manual deploy
 
@@ -42,25 +42,27 @@ gh workflow run deploy.yml --repo MathiasSM/website --ref master \
 
 | Secret | Where | Scope | Purpose |
 | --- | --- | --- | --- |
-| `CONTENT_TOKEN` | this repo | Fine-grained PAT, `MathiasSM/web-writings` only, `Contents: Read-only` | Check out the content repo |
+| `CONTENT_TOKEN` | this repo, `github-pages` environment | Fine-grained PAT, `MathiasSM/web-writings` only, `Contents: Read-only` | Check out the content repo |
 | `SITE_DISPATCH_TOKEN` | `MathiasSM/web-writings` | Fine-grained PAT, `MathiasSM/website` only, `Actions: Read and write` | Dispatch `deploy.yml` |
 
-Neither token may have `Workflows` permission. Rotate both on their expiry; a failed dispatch in the content repo is the signal a token expired.
+Neither token may have `Workflows` permission. `CONTENT_TOKEN` is an environment secret, not a repository secret, so it is withheld from any ref the `github-pages` environment does not allow. Rotate both on their expiry; a failed dispatch in the content repo is the signal a token expired.
 
 ## Pages configuration
 
 - Settings -> Pages -> Source: `GitHub Actions`.
 - Custom domain: `mathiassm.dev`, with Enforce HTTPS.
-- The `github-pages` environment allows deployments from `master` only.
+- The `github-pages` environment allows jobs from `master` only; this gates both the deploy and `CONTENT_TOKEN`.
 
 ## Rules
 
-- Never commit content or build output to this repo (`content/`, `_site/`, `_cache/`, the kit directories). They are gitignored and guarded in CI.
+- Never commit content or build output to this repo (`content/`, `_site/`, `_cache/`, `_artifacts/`, the kit directories). They are gitignored and guarded in CI.
 - `deploy.yml` has no `pull_request` or `pull_request_target` trigger; fork PRs cannot run it or read secrets.
 - No `actions/cache` for anything derived from `content/`.
 
 ## Security notes
 
-The `site` and `lychee-config` artifacts are short-lived (1 day). The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`; drafts are excluded by the production build. The content-read token lives in this repo's secret store, so a compromise of this repo could expose the private content. All changes land via pull request.
+The `site` artifact is short-lived (1 day) and is uploaded only after the build job's checks pass, so a failed build does not leave unpublished output in the artifact store. The external link check runs inside `build` against the content repo's `config/lychee.toml`; that file is never uploaded as an artifact. The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA; drafts are excluded by the production build. `harden-runner` runs in audit mode, so egress is logged, not blocked. The content-read token lives in this repo's `github-pages` environment, so a compromise of this repo could expose the private content.
+
+Changes are committed to `master` by the owner.
 
 See [Cozyll's consumer CI docs](https://github.com/MathiasSM/Cozyll/blob/master/docs/consumer-ci.md) for the reusable workflow and checks.

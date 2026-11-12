@@ -46,7 +46,7 @@ The reusable workflow resolves the kit version from its `cozyll-version` input w
 ## Manual deploy
 
 ```sh
-./scripts/deploy.sh
+./deploy.sh
 ```
 
 That runs `gh workflow run deploy.yml --repo MathiasSM/website --ref master`. You can also run the `Deploy site` workflow in `web-writings`.

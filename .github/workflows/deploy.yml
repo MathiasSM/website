@@ -8,7 +8,11 @@ name: Build and deploy
 on:
   push:
     branches: ["**"]
+    paths:
+      - ".github/workflows/**"
   pull_request:
+    paths:
+      - ".github/workflows/**"
   workflow_dispatch:
   schedule:
     - cron: "0 6 1 * *" # 1st of every month at 06:00 UTC

@@ -28,8 +28,8 @@ https://mathiassm.dev
 ## Triggers
 
 Website:
-- `push` to any branch: build and checks. Deploy only on `master`.
-- `pull_request`: build and checks for PRs from this repository. Fork PRs get no secrets, so the site build is skipped; `lint.yml` still runs for them.
+- `push` to any branch that touches `.github/workflows/**`: build and checks. Deploy only on `master`.
+- `pull_request` that touches `.github/workflows/**`: build and checks for PRs from this repository. Fork PRs get no secrets, so the site build is skipped; `lint.yml` still runs for them.
 - `workflow_dispatch`: build and checks; deploy only when dispatched on `master`.
 - `schedule`: monthly, on `master`, build and deploy.
 - Every build uses `website.yaml`'s `mathiassm.dev` domain; there is no per-branch domain override.

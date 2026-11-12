@@ -25,7 +25,7 @@ https://mathiassm.dev
 
 ## Kit version
 
-The Cozyll kit version is read from a `cozyll-version` key in the content repo's `website.yaml`. The value must be a pinned release tag such as `v3.4.3.1`; `latest` is rejected so the build is reproducible. Until the key exists (it is not yet supported by Cozyll), the workflow falls back to a hardcoded `v3.4.3.1`, marked with a `TODO`. Remove the fallback once `website.yaml` ships the key and Cozyll accepts it.
+The Cozyll kit version is read from `.cozyll-version` at the content repo root. The file holds one release tag such as `v3.4.3.1`; blank lines and `#` comments are ignored. A missing or invalid file fails the build, and `latest` is rejected so the build is reproducible. The content repo ships this file; bump it there when upgrading the kit.
 
 The Cozyll action refs are pinned by commit SHA to `v3.4.3.1`; bump them together with the kit version.
 

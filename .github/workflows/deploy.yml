@@ -6,6 +6,9 @@
 name: Build and deploy
 
 on:
+  push:
+    branches: ["**"]
+  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "0 6 1 * *" # 1st of every month at 06:00 UTC
@@ -13,19 +16,17 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: pages
-  cancel-in-progress: false
-
 jobs:
   site:
     name: Site CI
-    if: github.ref == 'refs/heads/master'
+    # Build on any branch and on same-repo PRs. Fork PRs get no secrets, so
+    # they cannot read the private content; lint.yml still runs for them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
     # PR #202 adds cross-repo content checkout and .cozyll-version resolution.
     # Bump this to the merged commit or the next release tag.
-    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@758fa78c4f87d9dbf4c42ca504bb3d0b3b7ea126
+    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@26f6cd3317087c472679e1e81fc3432013311437
     with:
       content-repo: MathiasSM/web-writings
       run-links-external: true
@@ -34,7 +35,7 @@ jobs:
 
   guard:
     name: Guard against committed content
-    if: github.ref == 'refs/heads/master'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (audit outbound calls)
@@ -54,7 +55,11 @@ jobs:
   deploy:
     name: Deploy
     needs: [site, guard]
-    if: github.ref == 'refs/heads/master'
+    # Deploy only from a non-PR run on master: push, schedule, or manual dispatch.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       pages: write

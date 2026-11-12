@@ -25,6 +25,20 @@ https://mathiassm.dev
 - The deploy job runs the publish guard and publishes the `site` artifact to Pages.
 - A monthly schedule in `deploy.yml` rebuilds as a canary for link rot and expiring `security.txt`.
 
+## Triggers
+
+Website:
+- `push` to any branch: build and checks. Deploy only on `master`.
+- `pull_request`: build and checks for PRs from this repository. Fork PRs get no secrets, so the site build is skipped; `lint.yml` still runs for them.
+- `workflow_dispatch`: build and checks; deploy only when dispatched on `master`.
+- `schedule`: monthly, on `master`, build and deploy.
+- Every build uses `website.yaml`'s `mathiassm.dev` domain; there is no per-branch domain override.
+
+`web-writings`:
+- `push` to any branch: `Content CI` builds and checks that branch.
+- `push` to `master`: `Deploy site` also starts the website pipeline.
+- No PRs (private repo) and no schedule; the website schedule exercises `master`.
+
 ## Kit version
 
 The reusable workflow resolves the kit version from its `cozyll-version` input when set, then `.cozyll-version` at the content repo root, then `latest`. This repo passes no `cozyll-version`, so `web-writings/.cozyll-version` decides. The file holds one release tag such as `v3.4.3.1`; blank lines and `#` comments are ignored.
@@ -32,10 +46,10 @@ The reusable workflow resolves the kit version from its `cozyll-version` input w
 ## Manual deploy
 
 ```sh
-gh workflow run deploy.yml --repo MathiasSM/website --ref master
+./scripts/deploy.sh
 ```
 
-Or run the `Deploy site` workflow in `web-writings`.
+That runs `gh workflow run deploy.yml --repo MathiasSM/website --ref master`. You can also run the `Deploy site` workflow in `web-writings`.
 
 ## Secrets and tokens
 
@@ -55,14 +69,14 @@ Neither token may have `Workflows` permission. `CONTENT_TOKEN` is a repository s
 ## Rules
 
 - Never commit content or build output to this repo (`content/`, `_site/`, `_cache/`, `_artifacts/`, the kit directories). They are gitignored and guarded in CI.
-- `deploy.yml` has no `pull_request` or `pull_request_target` trigger; fork PRs cannot run it or read secrets.
+- `deploy.yml` has no `pull_request_target` trigger. Same-repo PRs can read `CONTENT_TOKEN`; fork PRs cannot, so the site job skips them and `lint.yml` is the only check.
 - No `actions/cache` for anything derived from `content/`.
 
 ## Security notes
 
 The reusable workflow uses `CONTENT_TOKEN` in its build, content-schema, and external-link jobs; all three run on this repo's runner and the token is masked in logs. The external link check reads `content/config/lychee.toml` in place, so that file is never uploaded as an artifact. The `site` artifact is uploaded by the reusable workflow and consumed by the deploy job; it contains only the public site output, and drafts are excluded by the production build. The deploy job runs the publish guard before uploading the Pages artifact.
 
-The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA. `CONTENT_TOKEN` is a repository secret, so a compromise of this repo could expose the private content. The workflow has `workflow_dispatch`, so a dispatch token holder can start a run on any ref that already exists, but cannot create or edit a ref; keep this repo owner-only and delete stale branches. The `if: github.ref == 'refs/heads/master'` guards are defence in depth, not a boundary on a branch.
+The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA. `CONTENT_TOKEN` is a repository secret, so a compromise of this repo could expose the private content. The `site` job runs on every branch, on same-repo PRs, and on manual dispatch; fork PRs skip it. The deploy job is limited to non-PR runs on `master`. The `if` guards are defence in depth, not a boundary on a branch.
 
 Changes are committed to `master` by the owner.
 

@@ -28,9 +28,9 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
-    # PR #202 adds cross-repo content checkout and .cozyll-version resolution.
-    # Bump this to the merged commit or the next release tag.
-    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@26f6cd3317087c472679e1e81fc3432013311437
+    # PR #202 is merged as 9204875. Bump this to the next release tag once it
+    # exists; the merge commit is the canonical master pin until then.
+    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@920487500f1e213836b9ba3db52c66d3c2da4bfb
     with:
       content-repo: MathiasSM/web-writings
       run-links-external: true

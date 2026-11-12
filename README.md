@@ -7,51 +7,51 @@ The written content is private and lives in [`MathiasSM/web-writings`](https://g
 ## Pipeline
 
 ```
-web-writings: merge to master
+web-writings: commit to master
         |
         v
 web-writings: .github/workflows/dispatch-site.yml   (Deploy site)
-        |  gh workflow run deploy.yml (workflow_dispatch)
+        |  repository_dispatch (content-updated)
         v
 website: .github/workflows/deploy.yml               (Build and deploy)
-        |  checkout content -> install kit -> build -> checks -> Pages
+        |  Cozyll site-ci.yml: checkout content -> build -> checks
+        |  then this repo runs the publish guard and Pages
         v
 https://mathiassm.dev
 ```
 
-- `dispatch-site.yml` (in the content repo) fires on a merge to `master` and dispatches this repo's `deploy.yml` with the merged commit SHA.
-- `deploy.yml` checks out that SHA, installs the Cozyll kit, builds the site, runs the checks (internal links, content schema, HTML, a11y advisory, JSON-LD, well-known, XML, external links), and deploys to Pages.
+- `dispatch-site.yml` (in the content repo) fires on a commit to `master` and sends a `repository_dispatch` to this repo.
+- `deploy.yml` calls Cozyll's reusable `site-ci.yml`, which checks out `web-writings` with `CONTENT_TOKEN`, installs the kit, builds the site, and runs the checks (internal links, content schema, HTML, a11y advisory, JSON-LD, well-known, XML, external links).
+- The deploy job runs the publish guard and publishes the `site` artifact to Pages.
 - A monthly schedule in `deploy.yml` rebuilds as a canary for link rot and expiring `security.txt`.
 
 ## Kit version
 
-The Cozyll kit version is read from `.cozyll-version` at the content repo root. The file holds one release tag such as `v3.4.3.1`; blank lines and `#` comments are ignored. A missing or invalid file fails the build, and `latest` is rejected so the build is reproducible. The content repo ships this file; bump it there when upgrading the kit.
-
-The Cozyll action refs are pinned by commit SHA to `v3.4.3.1`; bump them together with the kit version.
+The reusable workflow resolves the kit version from its `cozyll-version` input when set, then `.cozyll-version` at the content repo root, then `latest`. This repo passes no `cozyll-version`, so `web-writings/.cozyll-version` decides. The file holds one release tag such as `v3.4.3.1`; blank lines and `#` comments are ignored.
 
 ## Manual deploy
 
 ```sh
-gh workflow run deploy.yml --repo MathiasSM/website --ref master
-# or pin the content commit:
-gh workflow run deploy.yml --repo MathiasSM/website --ref master \
-  -f content_sha="$(git -C ../web-writings rev-parse master)"
+gh api --method POST repos/MathiasSM/website/dispatches \
+  -f event_type=content-updated
 ```
+
+Or run the `Deploy site` workflow in `web-writings`. The website workflow has no `workflow_dispatch` so that only the default branch can run with `CONTENT_TOKEN`.
 
 ## Secrets and tokens
 
 | Secret | Where | Scope | Purpose |
 | --- | --- | --- | --- |
-| `CONTENT_TOKEN` | this repo, `github-pages` environment | Fine-grained PAT, `MathiasSM/web-writings` only, `Contents: Read-only` | Check out the content repo |
-| `SITE_DISPATCH_TOKEN` | `MathiasSM/web-writings` | Fine-grained PAT, `MathiasSM/website` only, `Actions: Read and write` | Dispatch `deploy.yml` |
+| `CONTENT_TOKEN` | this repo (repository secret) | Fine-grained PAT, `MathiasSM/web-writings` only, `Contents: Read-only` | Check out the content repo in the reusable workflow |
+| `SITE_DISPATCH_TOKEN` | `MathiasSM/web-writings` | Fine-grained PAT, `MathiasSM/website` only, `Contents: Read and write` | Send the `repository_dispatch` |
 
-Neither token may have `Workflows` permission. `CONTENT_TOKEN` is an environment secret, not a repository secret, so it is withheld from any ref the `github-pages` environment does not allow. Rotate both on their expiry; a failed dispatch in the content repo is the signal a token expired.
+Neither token may have `Workflows` permission. `CONTENT_TOKEN` is a repository secret because a reusable-workflow caller cannot read an environment secret; the workflow has no `workflow_dispatch`, so only `repository_dispatch` and `schedule` runs on the default branch can use it. Rotate both on their expiry; a failed dispatch in the content repo is the signal a token expired.
 
 ## Pages configuration
 
 - Settings -> Pages -> Source: `GitHub Actions`.
 - Custom domain: `mathiassm.dev`, with Enforce HTTPS.
-- The `github-pages` environment allows jobs from `master` only; this gates both `build` (and its `CONTENT_TOKEN`) and `deploy`.
+- The `github-pages` environment gates the deploy job; keep it restricted to `master`.
 
 ## Rules
 
@@ -61,7 +61,9 @@ Neither token may have `Workflows` permission. `CONTENT_TOKEN` is an environment
 
 ## Security notes
 
-The `site` artifact is short-lived (1 day) and is uploaded only after the build job's checks pass, so a failed build job does not leave unpublished output in the artifact store; a downstream check failure can leave it for its 1-day retention. The external link check runs inside `build` against the content repo's `config/lychee.toml`; that file is never uploaded as an artifact. The check runs in the same job as `CONTENT_TOKEN` with `harden-runner` in audit mode; the lychee action is SHA-pinned and the config has no executable surface. The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA; drafts are excluded by the production build. The content-read token lives in this repo's `github-pages` environment, so a compromise of this repo could expose the private content.
+The reusable workflow uses `CONTENT_TOKEN` in its build, content-schema, and external-link jobs; all three run on this repo's runner and the token is masked in logs. The external link check reads `content/config/lychee.toml` in place, so that file is never uploaded as an artifact. The `site` artifact is uploaded by the reusable workflow and consumed by the deploy job; it contains only the public site output, and drafts are excluded by the production build. The deploy job runs the publish guard before uploading the Pages artifact.
+
+The public run logs include the built site's file paths because `upload-pages-artifact` runs `tar -v`, and the step summary records the content commit SHA. `CONTENT_TOKEN` is a repository secret, so a compromise of this repo could expose the private content; the workflow has no `workflow_dispatch`, so a non-default ref cannot run it. `SITE_DISPATCH_TOKEN` can write to this repo (required for `repository_dispatch`), so keep a `master` ruleset that blocks direct pushes and deletions.
 
 Changes are committed to `master` by the owner.
 

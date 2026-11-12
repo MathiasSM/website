@@ -1,18 +1,13 @@
-# Build the private content repo with the Cozyll kit, verify the result, and
+# Build the private content repo with Cozyll's reusable site-ci workflow and
 # publish it to GitHub Pages from this public repository.
 #
-# Content lives in MathiasSM/web-writings and is checked out under content/
-# with a read-only fine-grained PAT stored in the github-pages environment. It
-# must never be committed here.
+# Content lives in MathiasSM/web-writings and is checked out by the reusable
+# workflow with CONTENT_TOKEN. It must never be committed here.
 name: Build and deploy
 
 on:
-  workflow_dispatch:
-    inputs:
-      content_sha:
-        description: Commit SHA in MathiasSM/web-writings to build. Empty means master.
-        required: false
-        type: string
+  repository_dispatch:
+    types: [content-updated]
   schedule:
     - cron: "0 6 1 * *" # 1st of every month at 06:00 UTC
 
@@ -24,208 +19,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build site
+  site:
+    name: Site CI
     if: github.ref == 'refs/heads/master'
-    environment: github-pages
+    permissions:
+      contents: read
+    # PR #202 adds cross-repo content checkout and .cozyll-version resolution.
+    # Bump this to the merged commit or the next release tag.
+    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@7812e717d5d29b1996e0772e0da7aff89244f9cf
+    with:
+      content-repo: MathiasSM/web-writings
+      run-links-external: true
+    secrets:
+      content-token: ${{ secrets.CONTENT_TOKEN }}
+
+  guard:
+    name: Guard against committed content
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (audit outbound calls)
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-
-      - name: Check out this repository (content guard)
-        uses: actions/checkout@v7
-        with:
-          path: repo
-
+      - uses: actions/checkout@v7
       - name: Guard against committed content
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "$(git -C repo ls-tree -r --name-only HEAD -- content)" ]; then
+          if [ -n "$(git ls-tree -r --name-only HEAD -- content)" ]; then
             echo "content/ must never be committed to this repository" >&2
             exit 1
           fi
 
-      - name: Validate the content ref
-        id: content
-        shell: bash
-        env:
-          CONTENT_SHA: ${{ github.event.inputs.content_sha }}
-        run: |
-          set -euo pipefail
-          if [ -n "${CONTENT_SHA:-}" ] && ! printf '%s' "$CONTENT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "content_sha must be a 40-character lowercase hex commit SHA" >&2
-            exit 1
-          fi
-          echo "ref=${CONTENT_SHA:-master}" >> "$GITHUB_OUTPUT"
-
-      - name: Check out the content repository
-        uses: actions/checkout@v7
-        with:
-          repository: MathiasSM/web-writings
-          ref: ${{ steps.content.outputs.ref }}
-          token: ${{ secrets.CONTENT_TOKEN }}
-          path: content
-          persist-credentials: false
-          submodules: false
-          lfs: false
-
-      - name: Record the deployed content SHA
-        shell: bash
-        run: echo "Content commit $(git -C content rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Resolve the Cozyll kit version
-        id: kit
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -f content/.cozyll-version ]; then
-            echo "content/.cozyll-version is missing" >&2
-            exit 1
-          fi
-          raw="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' content/.cozyll-version | awk 'NF { print; exit }')"
-          if ! printf '%s' "$raw" | grep -Eq '^v[0-9]+(\.[0-9]+)+$'; then
-            echo "content/.cozyll-version must contain a release tag like v3.4.3.1" >&2
-            exit 1
-          fi
-          echo "value=$raw" >> "$GITHUB_OUTPUT"
-
-      - name: Install the Cozyll kit
-        uses: MathiasSM/Cozyll/.github/actions/setup-cozyll@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          version: ${{ steps.kit.outputs.value }}
-
-      - name: Build
-        run: cozyll build
-
-      - name: Internal link check
-        run: cozyll check
-
-      - name: Content schema
-        uses: MathiasSM/Cozyll/.github/actions/check-content-schema@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          content-dir: content
-          schema-dir: schema
-
-      - name: Guard against private artefacts in the site
-        shell: bash
-        run: |
-          set -euo pipefail
-          bad="$(find _site \( -name '.git' -o -name '.git*' -o -name '.env*' \) -print)"
-          hidden="$(find _site -name '.*' ! -path '_site/.well-known/*' ! -name '.well-known' ! -name '.nojekyll' -print)"
-          if [ -n "$bad" ] || [ -n "$hidden" ] || [ -e _site/content ]; then
-            printf 'refusing to publish unexpected paths:\n%s\n%s\n' "$bad" "$hidden" >&2
-            [ -e _site/content ] && echo "_site/content is present" >&2
-            exit 1
-          fi
-
-      - name: External link check
-        uses: MathiasSM/Cozyll/.github/actions/check-links-external@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          site-dir: _site
-          config: content/config/lychee.toml
-          fail: "true"
-
-      - name: Upload the built site
-        uses: actions/upload-artifact@v7
-        with:
-          name: site
-          path: _site
-          include-hidden-files: true
-          retention-days: 1
-
-  html:
-    name: HTML
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (audit outbound calls)
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: audit
-      - uses: actions/download-artifact@v8
-        with:
-          name: site
-          path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-html@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          site-dir: _site
-
-  a11y:
-    name: Accessibility (advisory)
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (audit outbound calls)
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: audit
-      - uses: actions/download-artifact@v8
-        with:
-          name: site
-          path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-a11y@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        continue-on-error: true
-        with:
-          site-dir: _site
-
-  jsonld:
-    name: JSON-LD
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (audit outbound calls)
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: audit
-      - uses: actions/download-artifact@v8
-        with:
-          name: site
-          path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-jsonld@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          site-dir: _site
-
-  wellknown:
-    name: Well-known files
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (audit outbound calls)
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: audit
-      - uses: actions/download-artifact@v8
-        with:
-          name: site
-          path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-wellknown@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          site-dir: _site
-
-  xml:
-    name: XML
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Harden the runner (audit outbound calls)
-        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
-        with:
-          egress-policy: audit
-      - uses: actions/download-artifact@v8
-        with:
-          name: site
-          path: _site
-      - uses: MathiasSM/Cozyll/.github/actions/check-xml@0c3fba9555dd34c0acaa0dc3d1d58e177c1332d0 # v3.4.3.1
-        with:
-          site-dir: _site
-
   deploy:
     name: Deploy
-    needs: [build, html, jsonld, wellknown, xml]
+    needs: [site, guard]
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     permissions:
@@ -243,6 +72,25 @@ jobs:
         with:
           name: site
           path: _site
+      - name: Record the content commit
+        env:
+          GH_TOKEN: ${{ secrets.CONTENT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="$(gh api repos/MathiasSM/web-writings/commits/master --jq .sha)"
+          echo "Content commit $sha" >> "$GITHUB_STEP_SUMMARY"
+      - name: Guard against private artefacts in the site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bad="$(find _site \( -name '.git' -o -name '.git*' -o -name '.env*' \) -print)"
+          hidden="$(find _site -name '.*' ! -path '_site/.well-known/*' ! -name '.well-known' ! -name '.nojekyll' -print)"
+          if [ -n "$bad" ] || [ -n "$hidden" ] || [ -e _site/content ]; then
+            printf 'refusing to publish unexpected paths:\n%s\n%s\n' "$bad" "$hidden" >&2
+            [ -e _site/content ] && echo "_site/content is present" >&2
+            exit 1
+          fi
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site

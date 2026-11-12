@@ -1,0 +1,284 @@
+# Build the private content repo with the Cozyll kit, verify the result, and
+# publish it to GitHub Pages from this public repository.
+#
+# Content lives in MathiasSM/web-writings and is checked out under content/
+# with a read-only fine-grained PAT. It must never be committed here.
+name: Build and deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      content_sha:
+        description: Commit SHA in MathiasSM/web-writings to build. Empty means master.
+        required: false
+        type: string
+  schedule:
+    - cron: "0 6 1 * *" # 1st of every month at 06:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Check out this repository (content guard)
+        uses: actions/checkout@v7
+        with:
+          path: repo
+
+      - name: Guard against committed content
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$(git -C repo ls-tree -r --name-only HEAD -- content)" ]; then
+            echo "content/ must never be committed to this repository" >&2
+            exit 1
+          fi
+
+      - name: Validate the content ref
+        id: content
+        shell: bash
+        env:
+          CONTENT_SHA: ${{ github.event.inputs.content_sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${CONTENT_SHA:-}" ] && ! printf '%s' "$CONTENT_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "content_sha must be a 40-character lowercase hex commit SHA" >&2
+            exit 1
+          fi
+          echo "ref=${CONTENT_SHA:-master}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the content repository
+        uses: actions/checkout@v7
+        with:
+          repository: MathiasSM/web-writings
+          ref: ${{ steps.content.outputs.ref }}
+          token: ${{ secrets.CONTENT_TOKEN }}
+          path: content
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Record the deployed content SHA
+        shell: bash
+        run: echo "Content commit $(git -C content rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Resolve the Cozyll kit version
+        id: kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw="$(awk -F': *' '/^cozyll-version[[:space:]]*:/ { print $2; exit }' content/website.yaml)"
+          raw="${raw%%#*}"
+          raw="$(printf '%s' "$raw" | tr -d "\"'[:space:]")"
+          if [ -z "$raw" ]; then
+            # TODO: remove this fallback once MathiasSM/web-writings ships a
+            # `cozyll-version` key in website.yaml and Cozyll accepts the key.
+            raw="v3.4.3.1"
+          fi
+          if ! printf '%s' "$raw" | grep -Eq '^(latest|v[0-9]+(\.[0-9]+)+)$'; then
+            echo "invalid cozyll-version in website.yaml: $raw" >&2
+            exit 1
+          fi
+          echo "value=$raw" >> "$GITHUB_OUTPUT"
+
+      - name: Install the Cozyll kit
+        uses: MathiasSM/Cozyll/.github/actions/setup-cozyll@v3.4.3.1
+        with:
+          version: ${{ steps.kit.outputs.value }}
+
+      - name: Build
+        run: cozyll build
+
+      - name: Internal link check
+        run: cozyll check
+
+      - name: Content schema
+        uses: MathiasSM/Cozyll/.github/actions/check-content-schema@v3.4.3.1
+        with:
+          content-dir: content
+          schema-dir: schema
+
+      - name: Guard against private artefacts in the site
+        shell: bash
+        run: |
+          set -euo pipefail
+          bad="$(find _site -mindepth 1 -maxdepth 1 \( -name '.git*' -o -name '.env*' \) -print)"
+          hidden="$(find _site -mindepth 1 -maxdepth 1 -name '.*' ! -name '.well-known' -print)"
+          if [ -n "$bad" ] || [ -d _site/content ]; then
+            printf 'refusing to publish unexpected paths:\n%s\n' "$bad" >&2
+            exit 1
+          fi
+          if [ -n "$hidden" ]; then
+            printf 'notice: hidden paths in _site (review before shipping):\n%s\n' "$hidden"
+          fi
+
+      - name: Stage the lychee config
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _artifacts
+          cp content/config/lychee.toml _artifacts/lychee.toml
+
+      - name: Upload the built site
+        uses: actions/upload-artifact@v7
+        with:
+          name: site
+          path: _site
+          include-hidden-files: true
+          retention-days: 1
+
+      - name: Upload the link checker config
+        uses: actions/upload-artifact@v7
+        with:
+          name: lychee-config
+          path: _artifacts
+          retention-days: 1
+
+  html:
+    name: HTML
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: MathiasSM/Cozyll/.github/actions/check-html@v3.4.3.1
+        with:
+          site-dir: _site
+
+  a11y:
+    name: Accessibility (advisory)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: MathiasSM/Cozyll/.github/actions/check-a11y@v3.4.3.1
+        continue-on-error: true
+        with:
+          site-dir: _site
+
+  jsonld:
+    name: JSON-LD
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: MathiasSM/Cozyll/.github/actions/check-jsonld@v3.4.3.1
+        with:
+          site-dir: _site
+
+  wellknown:
+    name: Well-known files
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: MathiasSM/Cozyll/.github/actions/check-wellknown@v3.4.3.1
+        with:
+          site-dir: _site
+
+  xml:
+    name: XML
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: MathiasSM/Cozyll/.github/actions/check-xml@v3.4.3.1
+        with:
+          site-dir: _site
+
+  links-external:
+    name: External links
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: actions/download-artifact@v8
+        with:
+          name: lychee-config
+          path: lychee-config
+      - uses: MathiasSM/Cozyll/.github/actions/check-links-external@v3.4.3.1
+        with:
+          site-dir: _site
+          config: lychee-config/lychee.toml
+          fail: "true"
+
+  deploy:
+    name: Deploy
+    needs: [build, html, jsonld, wellknown, xml, links-external]
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Harden the runner (audit outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: _site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+          include-hidden-files: true
+      - id: deployment
+        uses: actions/deploy-pages@v5

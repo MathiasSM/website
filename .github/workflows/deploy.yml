@@ -28,7 +28,7 @@ jobs:
       contents: read
     # Pin the Cozyll release this repo builds with. Keep it equal to
     # web-writings/.cozyll-version; site-ci fails the build if they drift.
-    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@v3.5.1.0
+    uses: MathiasSM/Cozyll/.github/workflows/site-ci.yml@v3.5.1.1
     with:
       content-repo: MathiasSM/web-writings
       run-links-external: true

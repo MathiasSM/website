@@ -28,7 +28,7 @@ https://mathiassm.dev
 ## Triggers
 
 Website:
-- `push` to any branch that touches `.github/workflows/**`: build and checks. Deploy only on `master`.
+- `push` to any branch, any file: build and checks. Deploy only on `master`.
 - `pull_request` that touches `.github/workflows/**`: build and checks for PRs from this repository. Fork PRs get no secrets, so the site build is skipped; `lint.yml` still runs for them.
 - `workflow_dispatch`: build and checks; deploy only when dispatched on `master`.
 - `schedule`: monthly, on `master`, build and deploy.
@@ -41,7 +41,12 @@ Website:
 
 ## Kit version
 
-The reusable workflow resolves the kit version from its `cozyll-version` input when set, then `.cozyll-version` at the content repo root, then `latest`. This repo passes no `cozyll-version`, so `web-writings/.cozyll-version` decides. The file holds one release tag such as `v3.4.3.1`; blank lines and `#` comments are ignored.
+The Cozyll version is pinned in two places and must stay equal:
+
+- `web-writings/.cozyll-version` - one release tag such as `v3.5.1.0` (blank lines and `#` comments are ignored). This decides the downloaded kit and `web-writings`' commit checks.
+- this repo's `deploy.yml` - the `site-ci.yml@v3.5.1.0` pin.
+
+The reusable `site-ci` workflow fails the build if the tag it was called at differs from `content/.cozyll-version`, so a version bump means editing both files together; forgetting one fails loudly. There is no `cozyll-version` input passed here.
 
 ## Manual deploy
 
